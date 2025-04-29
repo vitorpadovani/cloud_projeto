@@ -1,9 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-import hashlib
-import base64
-import requests
 from jose import jwt
 
 app = FastAPI()
