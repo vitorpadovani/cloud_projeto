@@ -2,33 +2,22 @@ version: '3.9'
 
 services:
 
-  db:
-    image: postgres
-    restart: always
-    shm_size: 128mb
-    environment:
-      POSTGRES_USER: example
-      POSTGRES_PASSWORD: example
-      POSTGRES_DB: meu_banco
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  adminer:
-    image: adminer
-    restart: always
-    ports:
-      - 8080:8080
-
   api:
-    build: .
+    image: minha-api
     restart: always
-    ports:
+    ports:  
       - 8000:8000
     depends_on:
       - db
     environment:
-      DATABASE_URL: postgres://example:example@db:5432/meu_banco
+      DATABASE_URL: ${DATABASE_URL}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-volumes:
-  postgres_data:
+  db:
+    image: postgres
+    hostname: db
+    restart: always
+    environment:
+      POSTGRES_USER: ${MEUUSUARIO}
+      POSTGRES_PASSWORD: ${MINHASENHADB}
+      POSTGRES_DB: ${POSTGRES_BANCO}

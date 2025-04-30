@@ -1,12 +1,32 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 from jose import jwt, JWTError
 import re, requests, cloudscraper
 from bs4 import BeautifulSoup
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+import os
 
 app = FastAPI()
 SECRET = "secret" 
+
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+class UsuarioDB(Base):
+    __tablename__ = "usuarios"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, index=True)
+    email = Column(String, unique=True, index=True)
+    senha = Column(String)
+
+Base.metadata.create_all(bind=engine)
 
 class Usuario(BaseModel):
     nome: str
@@ -25,21 +45,30 @@ class Crypto(BaseModel):
     symbol: str
     price: float
 
-usuarios_lista: List[Usuario] = []
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-def criaUsuario(usuario: Usuario):
-    usuarios_lista.append(usuario)
+def criaUsuario(usuario: Usuario, db: Session):
+    usuario_db = UsuarioDB(**usuario.dict())
+    db.add(usuario_db)
+    db.commit()
+    db.refresh(usuario_db)
 
-def buscaUsuario(email: str) -> Optional[Usuario]:
-    for u in usuarios_lista:
-        if u.email == email:
-            return u
-    return None
 
-def verificaJWT(token: str) -> Optional[Usuario]:
+def buscaUsuario(email: str, db: Session) -> UsuarioDB | None:
+    return db.query(UsuarioDB).filter(UsuarioDB.email == email).first()
+
+def verificaJWT(token: str, db: Session) -> Usuario | None:
     try:
         dados = jwt.decode(token, SECRET, algorithms=['HS256'])
-        return Usuario(**dados)
+        usuario = buscaUsuario(dados['email'], db)
+        if not usuario:
+            return None
+        return Usuario(nome=usuario.nome, email=usuario.email, senha=usuario.senha)
     except JWTError:
         return None
 
@@ -85,24 +114,25 @@ def get_top10_expensive_cryptos_cmc() -> List[Crypto]:
     cryptos.sort(key=lambda c: c.price, reverse=True)
     return cryptos[:10]
 
+# Endpoints
 @app.post("/registrar", response_model=JWTToken)
-def registrar(usuario: Usuario):
-    if buscaUsuario(usuario.email):
+def registrar(usuario: Usuario, db: Session = Depends(get_db)):
+    if buscaUsuario(usuario.email, db):
         raise HTTPException(status_code=409, detail="Usuário já registrado")
-    criaUsuario(usuario)
+    criaUsuario(usuario, db)
     token = jwt.encode(usuario.dict(), SECRET, algorithm='HS256')
     return JWTToken(jwt=token)
 
 @app.post("/login", response_model=JWTToken)
-def login(credenciais: UsuarioLogin):
-    user = buscaUsuario(credenciais.email)
+def login(credenciais: UsuarioLogin, db: Session = Depends(get_db)):
+    user = buscaUsuario(credenciais.email, db)
     if not user or user.senha != credenciais.senha:
         raise HTTPException(status_code=401, detail="Email ou senha inválidos")
-    token = jwt.encode(user.dict(), SECRET, algorithm='HS256')
+    token = jwt.encode({"nome": user.nome, "email": user.email, "senha": user.senha}, SECRET, algorithm='HS256')
     return JWTToken(jwt=token)
 
 @app.get("/consultar", response_model=List[Crypto])
-def consultar(jwt: str):
-    if not verificaJWT(jwt):
+def consultar(jwt: str, db: Session = Depends(get_db)):
+    if not verificaJWT(jwt, db):
         raise HTTPException(status_code=403, detail="JWT inválido ou expirado")
     return get_top10_expensive_cryptos_cmc()
