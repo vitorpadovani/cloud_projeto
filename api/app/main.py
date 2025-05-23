@@ -9,6 +9,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import os
 
+from socket import gethostname
+
 app = FastAPI()
 SECRET = "secret" 
 
@@ -136,3 +138,7 @@ def consultar(jwt: str, db: Session = Depends(get_db)):
     if not verificaJWT(jwt, db):
         raise HTTPException(status_code=403, detail="JWT inválido ou expirado")
     return get_top10_expensive_cryptos_cmc()
+
+@app.get("/health_check", status_code=200)
+def health_check():
+    return {"health_check": gethostname()}
